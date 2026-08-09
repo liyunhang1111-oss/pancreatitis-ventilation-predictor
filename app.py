@@ -217,10 +217,16 @@ with col3:
   )
 
   patient_source_option = st.radio(
-      "Patient Source (PatientSource_1)",
-      options=["0 - Other / Standard Referral", "1 - Emergency / Specific Source"],
+      "Transfer from External Hospital (PatientSource_1)",
+      options=[
+          "0 - No (Direct Admission / Non-transfer)",
+          "1 - Yes (Transferred from External Hospital)",
+      ],
       index=0,
-      help="Encoded binary feature: PatientSource_1",
+      help=(
+          "Encoded binary feature indicating whether the patient was"
+          " transferred from an outside hospital."
+      ),
   )
   patient_source_1 = 1 if "1" in patient_source_option else 0
 
