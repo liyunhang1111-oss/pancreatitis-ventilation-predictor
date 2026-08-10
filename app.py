@@ -1,7 +1,9 @@
 import os
 import joblib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import shap
 import streamlit as st
 
 # -----------------------------------------------------------------------------
@@ -40,6 +42,13 @@ st.markdown(
         padding: 20px;
         background-color: #FEF2F2;
         border-left: 6px solid #DC2626;
+        border-radius: 8px;
+        margin-top: 15px;
+    }
+    .result-box-mid {
+        padding: 20px;
+        background-color: #FFFBEB;
+        border-left: 6px solid #D97706;
         border-radius: 8px;
         margin-top: 15px;
     }
@@ -85,10 +94,10 @@ model_file_path = st.sidebar.text_input(
 model = load_gamboost_model(model_file_path)
 
 if model is None:
-  st.sidebar.warning(f"⚠️ Model file '{model_file_path}' not found.")
-  st.info(
-      "💡 **System Notice**: Please ensure `model_GAMBoost.pkl` is uploaded to"
-      " the root directory of your GitHub repository."
+  st.sidebar.warning(f"⚠️ Model file '{model_file_path}' not loaded.")
+  st.sidebar.info(
+      "💡 Please verify `model_GAMBoost.pkl` exists in root repository and"
+      " dependencies match."
   )
 else:
   st.sidebar.success("✅ GAMBoost Model Successfully Loaded")
@@ -291,29 +300,52 @@ if predict_btn:
     )
   else:
     try:
-      pred_class = model.predict(input_data)[0]
       pred_proba = model.predict_proba(input_data)[0][1]
 
       st.markdown("### 📊 Risk Assessment Results")
       res_col1, res_col2 = st.columns([1, 2])
 
+      # 风险三分级划分逻辑
+      if pred_proba < 0.15:
+        risk_level = "Low Risk"
+        delta_color = "normal"
+      elif 0.15 <= pred_proba <= 0.45:
+        risk_level = "Moderate Risk"
+        delta_color = "off"
+      else:
+        risk_level = "High Risk"
+        delta_color = "inverse"
+
       with res_col1:
         st.metric(
             label="Invasive Ventilation Probability",
             value=f"{pred_proba * 100:.2f}%",
-            delta="High Risk" if pred_proba >= 0.5 else "Low Risk",
-            delta_color="inverse" if pred_proba >= 0.5 else "normal",
+            delta=risk_level,
+            delta_color=delta_color,
         )
 
       with res_col2:
-        if pred_proba >= 0.5:
+        if pred_proba > 0.45:
           st.markdown(
               f"""
                         <div class="result-box-high">
-                            <h3 style="color: #991B1B; margin:0;">⚠️ Warning: High Risk</h3>
+                            <h3 style="color: #991B1B; margin:0;">🚨 High Risk (> 45%)</h3>
                             <p style="color: #7F1D1D; font-size: 15px; margin-top: 8px;">
-                                The estimated probability of requiring <b>invasive mechanical ventilation</b> is <b>{pred_proba*100:.1f}%</b>.<br>
-                                Close monitoring of airway patency, arterial blood gas parameters (PaO2/FiO2), and respiratory fatigue signs is highly recommended.
+                                Estimated probability of requiring <b>invasive mechanical ventilation</b> is <b>{pred_proba*100:.1f}%</b>.<br>
+                                Urgent clinical evaluation required. Close monitoring of airway, PaO2/FiO2 ratio, and early ICU involvement is recommended.
+                            </p>
+                        </div>
+                    """,
+              unsafe_allow_html=True,
+          )
+        elif 0.15 <= pred_proba <= 0.45:
+          st.markdown(
+              f"""
+                        <div class="result-box-mid">
+                            <h3 style="color: #92400E; margin:0;">⚠️ Moderate Risk (15% – 45%)</h3>
+                            <p style="color: #78350F; font-size: 15px; margin-top: 8px;">
+                                Estimated probability of requiring <b>invasive mechanical ventilation</b> is <b>{pred_proba*100:.1f}%</b>.<br>
+                                Intermediate risk level. Frequent reassessment of respiratory dynamics and oxygenation trends is advised.
                             </p>
                         </div>
                     """,
@@ -323,18 +355,58 @@ if predict_btn:
           st.markdown(
               f"""
                         <div class="result-box-low">
-                            <h3 style="color: #166534; margin:0;">✅ Low Risk</h3>
+                            <h3 style="color: #166534; margin:0;">✅ Low Risk (< 15%)</h3>
                             <p style="color: #14532D; font-size: 15px; margin-top: 8px;">
-                                The estimated probability of requiring <b>invasive mechanical ventilation</b> is <b>{pred_proba*100:.1f}%</b>.<br>
-                                Current risk for acute respiratory failure is low. Standard clinical observation is advised.
+                                Estimated probability of requiring <b>invasive mechanical ventilation</b> is <b>{pred_proba*100:.1f}%</b>.<br>
+                                Low probability of acute respiratory breakdown. Standard clinical observation recommended.
                             </p>
                         </div>
                     """,
               unsafe_allow_html=True,
           )
 
-      with st.expander("🔍 View Submitted Input Feature Array"):
+      st.markdown("---")
+
+      # -----------------------------------------------------------------------------
+      # 6. SHAP Model Interpretability Visualizer
+      # -----------------------------------------------------------------------------
+      st.markdown("### 🧩 SHAP Patient-Level Explanation")
+      st.caption(
+          "The waterfall plot below illustrates how each clinical predictor"
+          " contributes positively or negatively to the final predicted risk."
+      )
+
+      with st.spinner("Calculating SHAP feature attribution..."):
+        try:
+          # 构建 SHAP 解释器
+          explainer = shap.Explainer(model)
+          shap_values = explainer(input_data)
+
+          fig, ax = plt.subplots(figsize=(9, 5))
+          shap.plots.waterfall(shap_values[0], show=False)
+          plt.tight_layout()
+          st.pyplot(fig)
+          plt.close()
+        except Exception as shap_err:
+          # 针对部分特定模型架构的通用 Explainer 兜底方案
+          try:
+            explainer = shap.KernelExplainer(model.predict_proba, input_data)
+            shap_values = explainer.shap_values(input_data)
+            fig, ax = plt.subplots(figsize=(9, 5))
+            shap.summary_plot(
+                shap_values[1], input_data, plot_type="bar", show=False
+            )
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close()
+          except Exception as fallback_err:
+            st.warning(
+                "⚠️ SHAP calculation notice: Unable to compute dynamic SHAP"
+                f" waterfall plot ({shap_err})."
+            )
+
+      with st.expander("🔍 View Submitted Feature Array Table"):
         st.dataframe(input_data)
 
     except Exception as e:
-      st.error(f"An error occurred during prediction: {e}")
+      st.error(f"An error occurred during prediction execution: {e}")
