@@ -65,7 +65,7 @@ st.markdown(
 )
 
 st.markdown(
-    '<div class="main-header">🩺 Invasive Mechanical Ventilation Risk Prediction in Acute Pancreatitis (GAMBoost)</div>',
+    '<div class="main-header">Mechanical Ventilation Risk Prediction in Acute Pancreatitis (GAMBoost)</div>',
     unsafe_allow_html=True,
 )
 
@@ -132,7 +132,7 @@ with col1:
       value=9.5,
       step=0.1,
   )
-  plt = st.number_input(
+  plt_val = st.number_input(
       "Platelet Count PLT (×10⁹/L)",
       min_value=0.0,
       max_value=1000.0,
@@ -271,7 +271,7 @@ input_data = pd.DataFrame(
         patient_source_1,
         cr,
         pa,
-        plt,
+        plt_val,
         neutrophil,
         lymphocyte,
         onset_to_admit,
@@ -305,7 +305,7 @@ if predict_btn:
       st.markdown("### 📊 Risk Assessment Results")
       res_col1, res_col2 = st.columns([1, 2])
 
-      # 风险三分级划分逻辑
+      # 三分级风险划分
       if pred_proba < 0.15:
         risk_level = "Low Risk"
         delta_color = "normal"
@@ -372,13 +372,13 @@ if predict_btn:
       # -----------------------------------------------------------------------------
       st.markdown("### 🧩 SHAP Patient-Level Explanation")
       st.caption(
-          "The waterfall plot below illustrates how each clinical predictor"
-          " contributes positively or negatively to the final predicted risk."
+          "The plot below illustrates how each clinical predictor contributes"
+          " positively or negatively to the predicted risk."
       )
 
       with st.spinner("Calculating SHAP feature attribution..."):
         try:
-          # 构建 SHAP 解释器
+          # 针对包含概率预测的模型尝试 Explainer
           explainer = shap.Explainer(model)
           shap_values = explainer(input_data)
 
@@ -386,9 +386,9 @@ if predict_btn:
           shap.plots.waterfall(shap_values[0], show=False)
           plt.tight_layout()
           st.pyplot(fig)
-          plt.close()
+          plt.close(fig)
         except Exception as shap_err:
-          # 针对部分特定模型架构的通用 Explainer 兜底方案
+          # 兜底：KernelExplainer
           try:
             explainer = shap.KernelExplainer(model.predict_proba, input_data)
             shap_values = explainer.shap_values(input_data)
@@ -398,12 +398,9 @@ if predict_btn:
             )
             plt.tight_layout()
             st.pyplot(fig)
-            plt.close()
+            plt.close(fig)
           except Exception as fallback_err:
-            st.warning(
-                "⚠️ SHAP calculation notice: Unable to compute dynamic SHAP"
-                f" waterfall plot ({shap_err})."
-            )
+            st.warning(f"⚠️ Dynamic SHAP rendering error: {shap_err}")
 
       with st.expander("🔍 View Submitted Feature Array Table"):
         st.dataframe(input_data)
